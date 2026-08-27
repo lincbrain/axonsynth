@@ -11,6 +11,7 @@ import json
 import math
 import os
 import platform
+import re
 import shlex
 import sys
 import tempfile
@@ -24,6 +25,8 @@ import torch
 
 
 SEGMENTATION_MODES = ("binary", "three_class_shell_interior")
+STITCH_DEVICES = ("model", "cpu")
+OUTPUT_PROFILES = ("full", "binary_focused")
 NORMALIZATION_PERCENTILES = (0.5, 99.5)
 MODEL_CHANNELS = (16, 32, 64, 128, 256)
 MODEL_STRIDES = (2, 2, 2, 2)
@@ -33,6 +36,7 @@ SLIDING_WINDOW_BLEND_MODE = "gaussian"
 SLIDING_WINDOW_PADDING_MODE = "constant"
 SLIDING_WINDOW_CVAL = 0.0
 SLIDING_WINDOW_SIGMA_SCALE = 0.125
+ADDITIONAL_THRESHOLD_LABEL_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9_-]*")
 
 
 @dataclass
@@ -60,8 +64,11 @@ def _positive_float(value: str) -> float:
 
 
 def _probability(value: str) -> float:
-    parsed = float(value)
-    if not 0.0 <= parsed <= 1.0:
+    try:
+        parsed = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("value must be a number between 0 and 1") from exc
+    if not math.isfinite(parsed) or not 0.0 <= parsed <= 1.0:
         raise argparse.ArgumentTypeError("value must be between 0 and 1")
     return parsed
 
@@ -71,6 +78,41 @@ def _overlap(value: str) -> float:
     if not 0.0 <= parsed < 1.0:
         raise argparse.ArgumentTypeError("value must be in [0, 1)")
     return parsed
+
+
+def validate_additional_threshold_label(label: str) -> str:
+    if not ADDITIONAL_THRESHOLD_LABEL_PATTERN.fullmatch(label):
+        raise ValueError(
+            "additional-threshold label must start with an ASCII letter or digit "
+            "and contain only ASCII letters, digits, underscores, and hyphens"
+        )
+    return label
+
+
+def parse_additional_threshold(value: str) -> tuple[str, float]:
+    """Parse one safe output label and probability threshold."""
+
+    if value.count("=") != 1:
+        raise argparse.ArgumentTypeError("additional-threshold must be LABEL=VALUE")
+    label, threshold_text = value.split("=", 1)
+    try:
+        validate_additional_threshold_label(label)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return label, _probability(threshold_text)
+
+
+def collect_additional_thresholds(
+    values: Sequence[tuple[str, float]],
+) -> dict[str, float]:
+    """Collect parsed thresholds while rejecting ambiguous duplicate labels."""
+
+    thresholds: dict[str, float] = {}
+    for label, threshold in values:
+        if label in thresholds:
+            raise ValueError(f"duplicate additional-threshold label: {label!r}")
+        thresholds[label] = threshold
+    return thresholds
 
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
@@ -127,11 +169,37 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--overlap", type=_overlap, default=0.5, help="Sliding-window overlap")
     parser.add_argument("--threshold", type=_probability, default=0.5, help="Foreground threshold")
     parser.add_argument(
+        "--stitch-device",
+        choices=STITCH_DEVICES,
+        default="model",
+        help="Device for stitching sliding-window logits (default: model device)",
+    )
+    parser.add_argument(
+        "--output-profile",
+        choices=OUTPUT_PROFILES,
+        default="full",
+        help="Output set; binary_focused omits three-class argmax/shell/interior files",
+    )
+    parser.add_argument(
+        "--additional-threshold",
+        dest="additional_thresholds",
+        action="append",
+        type=parse_additional_threshold,
+        default=[],
+        metavar="LABEL=VALUE",
+        help="Save an additional binary foreground mask; repeat for multiple thresholds",
+    )
+    parser.add_argument(
         "--require-cuda",
         action="store_true",
         help="Fail instead of falling back to CPU when CUDA is unavailable",
     )
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    try:
+        args.additional_thresholds = collect_additional_thresholds(args.additional_thresholds)
+    except ValueError as exc:
+        parser.error(str(exc))
+    return args
 
 
 def default_output_prefix(input_path: Path) -> str:
@@ -286,28 +354,109 @@ def postprocess_logits(
     pred_logits: torch.Tensor,
     segmentation_mode: str,
     threshold: float,
+    output_profile: str = "full",
+    additional_thresholds: Mapping[str, float] | None = None,
 ) -> dict[str, np.ndarray]:
     """Convert binary or three-class logits into accepted inference outputs."""
 
+    if output_profile not in OUTPUT_PROFILES:
+        raise ValueError(f"Unsupported output profile: {output_profile!r}")
+
     if segmentation_mode == "binary":
         pred_prob = torch.sigmoid(pred_logits)[0, 0].detach().cpu().numpy()
-        return {
+        outputs = {
             "pred_prob": pred_prob,
             "pred": (pred_prob >= threshold).astype(np.uint8),
         }
-    if segmentation_mode != "three_class_shell_interior":
-        raise ValueError(f"Unsupported segmentation mode: {segmentation_mode!r}")
+    else:
+        if segmentation_mode != "three_class_shell_interior":
+            raise ValueError(f"Unsupported segmentation mode: {segmentation_mode!r}")
 
-    probabilities = torch.softmax(pred_logits, dim=1)[0].detach().cpu()
-    foreground_prob = (probabilities[1] + probabilities[2]).clamp_(0.0, 1.0).numpy()
-    pred_class = probabilities.argmax(dim=0).to(torch.uint8).numpy()
-    return {
-        "pred_prob": foreground_prob,
-        "pred": (foreground_prob >= threshold).astype(np.uint8),
-        "pred_class": pred_class,
-        "pred_shell": (pred_class == 1).astype(np.uint8),
-        "pred_interior": (pred_class == 2).astype(np.uint8),
+        probabilities = torch.softmax(pred_logits, dim=1)[0].detach().cpu()
+        pred_prob = (probabilities[1] + probabilities[2]).clamp_(0.0, 1.0).numpy()
+        outputs = {
+            "pred_prob": pred_prob,
+            "pred": (pred_prob >= threshold).astype(np.uint8),
+        }
+        if output_profile == "full":
+            pred_class = probabilities.argmax(dim=0).to(torch.uint8).numpy()
+            outputs.update(
+                {
+                    "pred_class": pred_class,
+                    "pred_shell": (pred_class == 1).astype(np.uint8),
+                    "pred_interior": (pred_class == 2).astype(np.uint8),
+                }
+            )
+
+    for label, additional_threshold in (additional_thresholds or {}).items():
+        outputs[f"pred_threshold_{label}"] = (pred_prob >= additional_threshold).astype(
+            np.uint8
+        )
+    return outputs
+
+
+def build_output_paths(
+    output_dir: Path,
+    output_prefix: str,
+    segmentation_mode: str,
+    output_profile: str = "full",
+    additional_thresholds: Mapping[str, float] | None = None,
+) -> dict[str, Path]:
+    """Build the complete output manifest for an inference run."""
+
+    if segmentation_mode not in SEGMENTATION_MODES:
+        raise ValueError(f"Unsupported segmentation mode: {segmentation_mode!r}")
+    if output_profile not in OUTPUT_PROFILES:
+        raise ValueError(f"Unsupported output profile: {output_profile!r}")
+
+    paths = {
+        "input": output_dir / f"{output_prefix}_input.nii.gz",
+        "pred_prob": output_dir / f"{output_prefix}_pred_prob.nii.gz",
+        "pred": output_dir / f"{output_prefix}_pred.nii.gz",
     }
+    if segmentation_mode == "three_class_shell_interior" and output_profile == "full":
+        paths.update(
+            {
+                "pred_class": output_dir / f"{output_prefix}_pred_class.nii.gz",
+                "pred_shell": output_dir / f"{output_prefix}_pred_shell.nii.gz",
+                "pred_interior": output_dir / f"{output_prefix}_pred_interior.nii.gz",
+            }
+        )
+    for label in (additional_thresholds or {}):
+        validate_additional_threshold_label(label)
+        paths[f"pred_threshold_{label}"] = (
+            output_dir / f"{output_prefix}_pred_threshold_{label}.nii.gz"
+        )
+    paths["metadata"] = output_dir / f"{output_prefix}_inference_metadata.json"
+    return paths
+
+
+def additional_threshold_metadata(
+    additional_thresholds: Mapping[str, float],
+    output_paths: Mapping[str, Path],
+) -> list[dict[str, str | float]]:
+    return [
+        {
+            "label": label,
+            "threshold": threshold,
+            "path": str(output_paths[f"pred_threshold_{label}"].resolve()),
+        }
+        for label, threshold in additional_thresholds.items()
+    ]
+
+
+def sliding_window_device_options(
+    stitch_device: str,
+    model_device: torch.device,
+) -> tuple[torch.device, dict[str, torch.device]]:
+    """Choose the input device and optional MONAI transfer/stitch devices."""
+
+    if stitch_device == "model":
+        return model_device, {}
+    if stitch_device == "cpu":
+        cpu = torch.device("cpu")
+        return cpu, {"sw_device": model_device, "device": cpu}
+    raise ValueError(f"Unsupported stitch device: {stitch_device!r}")
 
 
 def load_checkpoint(checkpoint_path: Path) -> Mapping[str, Any]:
@@ -415,6 +564,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.require_cuda and device.type != "cuda":
         raise RuntimeError("CUDA is required for this inference run")
     print(f"Device: {device}")
+    print(f"Stitch device: {args.stitch_device}")
     model = build_model(device, segmentation_mode)
     model.load_state_dict(model_state_dict(checkpoint), strict=True)
     model.eval()
@@ -436,8 +586,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"  Normalized range: [{patch_f.min():.3f}, {patch_f.max():.3f}] "
         f"mean={patch_f.mean():.3f}"
     )
+    input_device, sliding_window_device_kwargs = sliding_window_device_options(
+        args.stitch_device, device
+    )
     tensor = torch.from_numpy(patch_f).unsqueeze(0).unsqueeze(0).to(
-        device=device,
+        device=input_device,
         dtype=torch.float32,
     )
 
@@ -460,6 +613,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             sigma_scale=SLIDING_WINDOW_SIGMA_SCALE,
             padding_mode=SLIDING_WINDOW_PADDING_MODE,
             cval=SLIDING_WINDOW_CVAL,
+            **sliding_window_device_kwargs,
         )
 
     del tensor
@@ -467,24 +621,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     del pred_logits
     if device.type == "cuda":
         torch.cuda.empty_cache()
-    outputs = postprocess_logits(pred_logits_cpu, segmentation_mode, args.threshold)
+    outputs = postprocess_logits(
+        pred_logits_cpu,
+        segmentation_mode,
+        args.threshold,
+        output_profile=args.output_profile,
+        additional_thresholds=args.additional_thresholds,
+    )
     del pred_logits_cpu
 
-    output_paths = {
-        "input": args.output_dir / f"{output_prefix}_input.nii.gz",
-        "pred_prob": args.output_dir / f"{output_prefix}_pred_prob.nii.gz",
-        "pred": args.output_dir / f"{output_prefix}_pred.nii.gz",
-    }
-    if segmentation_mode == "three_class_shell_interior":
-        output_paths.update(
-            {
-                "pred_class": args.output_dir / f"{output_prefix}_pred_class.nii.gz",
-                "pred_shell": args.output_dir / f"{output_prefix}_pred_shell.nii.gz",
-                "pred_interior": args.output_dir / f"{output_prefix}_pred_interior.nii.gz",
-            }
-        )
-    metadata_path = args.output_dir / f"{output_prefix}_inference_metadata.json"
-    output_paths["metadata"] = metadata_path
+    output_paths = build_output_paths(
+        args.output_dir,
+        output_prefix,
+        segmentation_mode,
+        output_profile=args.output_profile,
+        additional_thresholds=args.additional_thresholds,
+    )
+    metadata_path = output_paths["metadata"]
 
     save_nii(patch_f, output_paths["input"], loaded_patch)
     for output_name, output_array in outputs.items():
@@ -508,6 +661,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "sliding_window_batch_size": args.sw_batch_size,
             "overlap": args.overlap,
             "threshold": args.threshold,
+            "stitch_device": args.stitch_device,
+            "output_profile": args.output_profile,
+            "additional_thresholds": additional_threshold_metadata(
+                args.additional_thresholds, output_paths
+            ),
             "sliding_window_blend_mode": SLIDING_WINDOW_BLEND_MODE,
             "sliding_window_sigma_scale": SLIDING_WINDOW_SIGMA_SCALE,
             "padding_mode": SLIDING_WINDOW_PADDING_MODE,
