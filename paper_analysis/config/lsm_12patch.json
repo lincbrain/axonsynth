@@ -1,0 +1,202 @@
+{
+  "schema_version": 3,
+  "roots": {
+    "data": "${DATA_ROOT}",
+    "output": "${OUTPUT_ROOT}"
+  },
+  "path_templates": {
+    "raw_patch": "${DATA_ROOT}/{dataset}/{patch}_raw.nii.gz",
+    "target_mask": "${DATA_ROOT}/{dataset}/{patch}_gt.nii.gz",
+    "prediction_dir": "${OUTPUT_ROOT}/predictions/{method}/{dataset}/{patch}",
+    "prediction_score": "${OUTPUT_ROOT}/predictions/{method}/{dataset}/{patch}/{patch}_pred_prob.nii.gz",
+    "prediction_mask": "${OUTPUT_ROOT}/predictions/{method}/{dataset}/{patch}/{patch}_pred.nii.gz",
+    "learned_metadata": "${OUTPUT_ROOT}/predictions/{method}/{dataset}/{patch}/{patch}_inference_metadata.json",
+    "baseline_metadata": "${OUTPUT_ROOT}/predictions/{method}/{dataset}/{patch}/{patch}_baseline_metadata.json",
+    "metrics_csv": "${OUTPUT_ROOT}/tables/lsm_12patch_metrics.csv",
+    "metrics_json": "${OUTPUT_ROOT}/tables/lsm_12patch_metrics.json",
+    "macro_metrics_csv": "${OUTPUT_ROOT}/tables/lsm_12patch_macro_metrics.csv",
+    "macro_metrics_json": "${OUTPUT_ROOT}/tables/lsm_12patch_macro_metrics.json",
+    "depth_metrics_csv": "${OUTPUT_ROOT}/tables/lsm_12patch_depth_metrics.csv",
+    "depth_metrics_json": "${OUTPUT_ROOT}/tables/lsm_12patch_depth_metrics.json",
+    "raw_error_overlay": "${OUTPUT_ROOT}/overlays/raw/{method}/{dataset}/{patch}_error.nii.gz",
+    "overlay_manifest": "${OUTPUT_ROOT}/overlays/raw/manifest.json",
+    "packet_dir": "${OUTPUT_ROOT}/results_packet",
+    "packet_table": "${OUTPUT_ROOT}/results_packet/lsm_12patch_compact.csv",
+    "packet_manifest": "${OUTPUT_ROOT}/results_packet/manifest.json",
+    "packet_markdown": "${OUTPUT_ROOT}/results_packet/README.md"
+  },
+  "patches": [
+    {
+      "id": "human_NEFH/Human_NEFH_GM",
+      "dataset": "human_NEFH",
+      "patch": "Human_NEFH_GM",
+      "domain": "human",
+      "split": "calibration"
+    },
+    {
+      "id": "human_NEFH/Human_NEFH_WM",
+      "dataset": "human_NEFH",
+      "patch": "Human_NEFH_WM",
+      "domain": "human",
+      "split": "heldout"
+    },
+    {
+      "id": "human_NEFH/Human_NEFH_transition",
+      "dataset": "human_NEFH",
+      "patch": "Human_NEFH_transition",
+      "domain": "human",
+      "split": "heldout"
+    },
+    {
+      "id": "human_NEFL/human_NEFL_GM_1",
+      "dataset": "human_NEFL",
+      "patch": "human_NEFL_GM_1",
+      "domain": "human",
+      "split": "heldout"
+    },
+    {
+      "id": "human_NEFL/human_NEFL_GM_2",
+      "dataset": "human_NEFL",
+      "patch": "human_NEFL_GM_2",
+      "domain": "human",
+      "split": "heldout"
+    },
+    {
+      "id": "human_NEFL/human_NEFL_White-Gray_Transition",
+      "dataset": "human_NEFL",
+      "patch": "human_NEFL_White-Gray_Transition",
+      "domain": "human",
+      "split": "heldout"
+    },
+    {
+      "id": "macaque_NEFH/macaque_NEFH_GM",
+      "dataset": "macaque_NEFH",
+      "patch": "macaque_NEFH_GM",
+      "domain": "macaque",
+      "split": "heldout"
+    },
+    {
+      "id": "macaque_NEFH/macaque_NEFH_WM",
+      "dataset": "macaque_NEFH",
+      "patch": "macaque_NEFH_WM",
+      "domain": "macaque",
+      "split": "heldout"
+    },
+    {
+      "id": "macaque_NEFH/macaque_NEFH_transition",
+      "dataset": "macaque_NEFH",
+      "patch": "macaque_NEFH_transition",
+      "domain": "macaque",
+      "split": "heldout"
+    },
+    {
+      "id": "macaque_PV/macaque_PV_WM_1",
+      "dataset": "macaque_PV",
+      "patch": "macaque_PV_WM_1",
+      "domain": "macaque",
+      "split": "heldout"
+    },
+    {
+      "id": "macaque_PV/macaque_PV_WM_2",
+      "dataset": "macaque_PV",
+      "patch": "macaque_PV_WM_2",
+      "domain": "macaque",
+      "split": "calibration"
+    },
+    {
+      "id": "macaque_PV/macaque_PV_White-Gray_Transition",
+      "dataset": "macaque_PV",
+      "patch": "macaque_PV_White-Gray_Transition",
+      "domain": "macaque",
+      "split": "heldout"
+    }
+  ],
+  "methods": {
+    "three_class_v2": {
+      "kind": "learned",
+      "segmentation_mode": "three_class_shell_interior",
+      "checkpoint": "${THREE_CLASS_CHECKPOINT}",
+      "threshold_selection_metric": "mean_target_informed_neighbor_corrected_dice_on_domain_calibration_patch",
+      "thresholds": {
+        "human": 0.94,
+        "macaque": 0.88
+      }
+    },
+    "binary_baseline": {
+      "kind": "learned",
+      "segmentation_mode": "binary",
+      "checkpoint": "${BINARY_CHECKPOINT}",
+      "threshold_selection_metric": "mean_target_informed_neighbor_corrected_dice_on_domain_calibration_patch",
+      "thresholds": {
+        "human": 0.95,
+        "macaque": 0.95
+      }
+    },
+    "intensity_threshold": {
+      "kind": "baseline",
+      "baseline": "intensity_threshold",
+      "threshold_selection_metric": "mean_target_informed_neighbor_corrected_dice_on_domain_calibration_patch",
+      "thresholds": {
+        "human": 0.47,
+        "macaque": 0.46
+      }
+    },
+    "frangi_bright": {
+      "kind": "baseline",
+      "baseline": "frangi",
+      "threshold_selection_metric": "mean_raw_dice_on_domain_calibration_patch",
+      "thresholds": {
+        "human": 0.05,
+        "macaque": 0.01
+      }
+    }
+  },
+  "frangi": {
+    "input": "normalized_intensity",
+    "ridge_polarity": "bright",
+    "black_ridges": false,
+    "mode": "reflect",
+    "gamma": null,
+    "selection_metric": "mean_raw_dice_on_calibration_patches",
+    "reporting_scope": "domain_specific",
+    "accepted_parameters": {
+      "global": {
+        "alpha": 0.25,
+        "beta": 0.5,
+        "sigmas": [3, 5, 7, 9],
+        "threshold": 0.03,
+        "calibration_mean_raw_dice": 0.46314261842083926,
+        "n_calibration_patches": 2
+      },
+      "by_domain": {
+        "human": {
+          "alpha": 0.25,
+          "beta": 0.5,
+          "sigmas": [3, 4, 5, 6, 7],
+          "threshold": 0.05,
+          "calibration_mean_raw_dice": 0.48971089485627695,
+          "n_calibration_patches": 1
+        },
+        "macaque": {
+          "alpha": 0.25,
+          "beta": 0.33,
+          "sigmas": [2, 3, 4, 5, 6, 7, 8, 9, 10],
+          "threshold": 0.01,
+          "calibration_mean_raw_dice": 0.46716461780183444,
+          "n_calibration_patches": 1
+        }
+      }
+    }
+  },
+  "evaluation": {
+    "target_informed_neighbor_correction": {
+      "enabled": true,
+      "neighbor_rounds": 2,
+      "connectivity": "face-6"
+    },
+    "depth_analysis": {
+      "axis": 0,
+      "slabs": 8
+    }
+  }
+}

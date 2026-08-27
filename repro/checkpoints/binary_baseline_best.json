@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "model_id": "binary_baseline_original",
+  "filename": "binary_best_model_ep200.pt",
+  "availability": "local_only",
+  "tracked_in_git": false,
+  "checkpoint_format": "torch.save dictionary",
+  "model_state_key": "model_state_dict",
+  "epoch": 182,
+  "best_epoch": 182,
+  "selection_metric": "val_dice",
+  "selection_score": 0.858588695526123,
+  "segmentation_mode": "binary",
+  "training_recipe": {
+    "configured_epochs": 500,
+    "snapshot_scope": "best validation Dice observed through epoch 200",
+    "learning_rate": 0.0001,
+    "scheduler": "5-epoch linear warmup followed by cosine annealing with T_max=495",
+    "note": "This is an epoch-200 milestone from a 500-epoch run, not a separately scheduled 200-epoch run."
+  },
+  "architecture": {
+    "class": "monai.networks.nets.UNet",
+    "monai_version": "1.5.2",
+    "spatial_dims": 3,
+    "in_channels": 1,
+    "out_channels": 1,
+    "channels": [16, 32, 64, 128, 256],
+    "strides": [2, 2, 2, 2],
+    "kernel_size": 3,
+    "up_kernel_size": 3,
+    "num_res_units": 2,
+    "act": "PRELU",
+    "norm": "BATCH",
+    "dropout": 0.1,
+    "bias": true,
+    "adn_ordering": "NDA"
+  },
+  "output_classes": {
+    "0": "axon_foreground_logit"
+  }
+}
