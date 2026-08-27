@@ -7,7 +7,7 @@
 #SBATCH --mem=256G
 #SBATCH --time=48:00:00
 #SBATCH --signal=TERM@120
-#SBATCH --output=slurm-%x-%j.out
+#SBATCH --output=local/logs/slurm-%x-%j.out
 
 set -euo pipefail
 

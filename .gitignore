@@ -35,6 +35,8 @@ artifacts/
 logs/
 logs_*/
 slurm_logs/
+!local/logs/
+!local/logs/.gitignore
 **/tensorboard/
 events.out.tfevents.*
 slurm-*.out

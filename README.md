@@ -29,6 +29,12 @@ conda activate axonsynth
 
 The smaller CPU analysis environment is defined in `paper_analysis/environment.yml`. Set site paths with `DATA_ROOT` and `OUTPUT_ROOT`; `config/site.example.env` documents the local variables.
 
+## Local Workspace
+
+Use `local/sbatch/` for temporary Slurm scripts and `local/logs/` for scheduler
+output. Their contents are ignored by Git. Submit the tracked Slurm scripts
+from the repository root so their configured log paths resolve correctly.
+
 ## Artifacts
 
 Model weights are **not stored in Git**. Their filenames, architectures, and training metadata are documented in:
