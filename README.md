@@ -1,3 +1,5 @@
+<img width="2172" height="724" alt="image" src="https://github.com/user-attachments/assets/02feb015-4727-4243-8c41-e0cb3542fd60" />
+
 # AxonSynth
 
 Release for synthetic-data training and 3D axon segmentation.
