@@ -16,8 +16,10 @@ from inference.infer_lsm import (
     parse_additional_threshold,
     parse_args,
     postprocess_logits,
+    reorder_loaded_patch,
     resolve_segmentation_mode,
     sliding_window_device_options,
+    validate_axis_order,
     validate_output_prefix,
 )
 
@@ -114,6 +116,8 @@ def test_new_inference_options_are_opt_in():
     assert args.stitch_device == "model"
     assert args.output_profile == "full"
     assert args.additional_thresholds == {}
+    assert args.no_save_input is False
+    assert args.output_axis_order is None
 
 
 def test_repeatable_additional_thresholds_are_parsed_in_order():
@@ -196,6 +200,89 @@ def test_binary_focused_output_paths_include_threshold_masks_only(tmp_path):
         "metadata",
     }
     assert paths["pred_threshold_0p94"].name == "volume_pred_threshold_0p94.nii.gz"
+
+
+def test_no_save_input_omits_normalized_input_path(tmp_path):
+    args = parse_args(
+        [
+            "--input",
+            "input.npy",
+            "--checkpoint",
+            "model.pt",
+            "--output-dir",
+            "outputs",
+            "--no-save-input",
+        ]
+    )
+    paths = build_output_paths(
+        tmp_path,
+        "volume",
+        "three_class_shell_interior",
+        save_input=not args.no_save_input,
+    )
+
+    assert "input" not in paths
+    assert set(paths) == {
+        "pred_prob",
+        "pred",
+        "pred_class",
+        "pred_shell",
+        "pred_interior",
+        "metadata",
+    }
+
+
+def test_output_axis_order_is_validated_and_parsed():
+    args = parse_args(
+        [
+            "--input",
+            "input.npy",
+            "--checkpoint",
+            "model.pt",
+            "--output-dir",
+            "outputs",
+            "--output-axis-order",
+            "1",
+            "2",
+            "0",
+        ]
+    )
+
+    assert args.output_axis_order == (1, 2, 0)
+
+
+@pytest.mark.parametrize("axis_order", [(0, 0, 1), (0, 1, 3), (0, 1)])
+def test_output_axis_order_must_be_a_permutation(axis_order):
+    with pytest.raises(ValueError, match="permutation"):
+        validate_axis_order(axis_order)
+
+
+def test_reorder_loaded_patch_updates_shape_affine_and_zooms(tmp_path):
+    input_path = tmp_path / "patch.nii.gz"
+    source = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    source_affine = np.diag([0.25, 0.5, 0.75, 1.0])
+    nib = pytest.importorskip("nibabel")
+    image = nib.Nifti1Image(source, source_affine)
+    image.set_qform(source_affine, code=1)
+    image.set_sform(source_affine, code=2)
+    nib.save(image, input_path)
+
+    reordered = reorder_loaded_patch(load_patch(input_path, voxel_size=1.0), (1, 2, 0))
+
+    np.testing.assert_array_equal(reordered.data, source.transpose(1, 2, 0))
+    assert reordered.data.shape == (3, 4, 2)
+    np.testing.assert_allclose(reordered.header.get_zooms()[:3], (0.5, 0.75, 0.25))
+    expected_transform = np.array(
+        [
+            [0.0, 0.0, 1.0, 0.0],
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ]
+    )
+    np.testing.assert_allclose(reordered.affine, source_affine @ expected_transform)
+    np.testing.assert_allclose(reordered.header.get_qform(), reordered.affine)
+    np.testing.assert_allclose(reordered.header.get_sform(), reordered.affine)
 
 
 def test_additional_threshold_metadata_records_settings_and_resolved_paths(tmp_path):

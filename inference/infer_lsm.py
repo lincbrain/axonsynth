@@ -115,6 +115,15 @@ def collect_additional_thresholds(
     return thresholds
 
 
+def validate_axis_order(values: Sequence[int]) -> tuple[int, int, int]:
+    """Validate a complete permutation of the three spatial axes."""
+
+    order = tuple(int(value) for value in values)
+    if len(order) != 3 or sorted(order) != [0, 1, 2]:
+        raise ValueError("output-axis-order must be a permutation of 0 1 2")
+    return order
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Axon segmentation on an LSM volume")
     parser.add_argument("--input", type=Path, required=True, help="Path to .npy, .nii/.nii.gz, or raw data")
@@ -190,6 +199,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         help="Save an additional binary foreground mask; repeat for multiple thresholds",
     )
     parser.add_argument(
+        "--no-save-input",
+        action="store_true",
+        help="Do not save the normalized input volume",
+    )
+    parser.add_argument(
+        "--output-axis-order",
+        type=int,
+        nargs=3,
+        default=None,
+        metavar=("A0", "A1", "A2"),
+        help="Transpose generated NIfTI outputs to this axis order",
+    )
+    parser.add_argument(
         "--require-cuda",
         action="store_true",
         help="Fail instead of falling back to CPU when CUDA is unavailable",
@@ -197,6 +219,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     args = parser.parse_args(argv)
     try:
         args.additional_thresholds = collect_additional_thresholds(args.additional_thresholds)
+        if args.output_axis_order is not None:
+            args.output_axis_order = validate_axis_order(args.output_axis_order)
     except ValueError as exc:
         parser.error(str(exc))
     return args
@@ -270,6 +294,32 @@ def load_patch(input_path: Path, voxel_size: float) -> LoadedPatch:
     if loaded.data.size == 0:
         raise ValueError("Input volume is empty")
     return loaded
+
+
+def reorder_loaded_patch(
+    loaded: LoadedPatch, axis_order: Sequence[int]
+) -> LoadedPatch:
+    """Transpose image data and update its affine and NIfTI header."""
+
+    order = validate_axis_order(axis_order)
+    data = loaded.data.transpose(order)
+    index_transform = np.zeros((4, 4), dtype=np.float64)
+    index_transform[3, 3] = 1.0
+    for output_axis, input_axis in enumerate(order):
+        index_transform[input_axis, output_axis] = 1.0
+    affine = np.asarray(loaded.affine, dtype=np.float64) @ index_transform
+
+    header = loaded.header.copy() if loaded.header is not None else None
+    if header is not None:
+        original_zooms = tuple(float(value) for value in header.get_zooms())
+        header.set_data_shape(data.shape)
+        header.set_zooms(tuple(original_zooms[axis] for axis in order))
+        _, qform_code = loaded.header.get_qform(coded=True)
+        _, sform_code = loaded.header.get_sform(coded=True)
+        header.set_qform(affine, code=int(qform_code))
+        header.set_sform(affine, code=int(sform_code))
+
+    return LoadedPatch(data, affine, header, loaded.source_format)
 
 
 def normalize_patch(patch: np.ndarray) -> tuple[np.ndarray, dict[str, Any]]:
@@ -401,6 +451,7 @@ def build_output_paths(
     segmentation_mode: str,
     output_profile: str = "full",
     additional_thresholds: Mapping[str, float] | None = None,
+    save_input: bool = True,
 ) -> dict[str, Path]:
     """Build the complete output manifest for an inference run."""
 
@@ -410,10 +461,11 @@ def build_output_paths(
         raise ValueError(f"Unsupported output profile: {output_profile!r}")
 
     paths = {
-        "input": output_dir / f"{output_prefix}_input.nii.gz",
         "pred_prob": output_dir / f"{output_prefix}_pred_prob.nii.gz",
         "pred": output_dir / f"{output_prefix}_pred.nii.gz",
     }
+    if save_input:
+        paths["input"] = output_dir / f"{output_prefix}_input.nii.gz"
     if segmentation_mode == "three_class_shell_interior" and output_profile == "full":
         paths.update(
             {
@@ -574,6 +626,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     print(f"Loading {args.input} ...")
     loaded_patch = load_patch(args.input, args.voxel_size)
     raw_patch = loaded_patch.data
+    output_reference = (
+        reorder_loaded_patch(loaded_patch, args.output_axis_order)
+        if args.output_axis_order is not None
+        else loaded_patch
+    )
     print(f"  Shape: {raw_patch.shape}, dtype: {raw_patch.dtype}")
     print(f"  Intensity range: [{raw_patch.min()}, {raw_patch.max()}]")
 
@@ -636,12 +693,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         segmentation_mode,
         output_profile=args.output_profile,
         additional_thresholds=args.additional_thresholds,
+        save_input=not args.no_save_input,
     )
     metadata_path = output_paths["metadata"]
 
-    save_nii(patch_f, output_paths["input"], loaded_patch)
+    if not args.no_save_input:
+        output_input = (
+            patch_f.transpose(args.output_axis_order)
+            if args.output_axis_order is not None
+            else patch_f
+        )
+        save_nii(output_input, output_paths["input"], output_reference)
     for output_name, output_array in outputs.items():
-        save_nii(output_array, output_paths[output_name], loaded_patch)
+        if args.output_axis_order is not None:
+            output_array = output_array.transpose(args.output_axis_order)
+        save_nii(output_array, output_paths[output_name], output_reference)
 
     command_args = list(sys.argv if argv is None else [sys.argv[0], *argv])
     metadata = {
@@ -649,6 +715,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "input_format": loaded_patch.source_format,
         "input_shape": list(raw_patch.shape),
         "input_dtype": str(raw_patch.dtype),
+        "output_shape": list(output_reference.data.shape),
         "checkpoint": {
             "path": str(args.checkpoint.resolve()),
         },
@@ -663,6 +730,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             "threshold": args.threshold,
             "stitch_device": args.stitch_device,
             "output_profile": args.output_profile,
+            "save_input": not args.no_save_input,
+            "output_axis_order": (
+                list(args.output_axis_order)
+                if args.output_axis_order is not None
+                else None
+            ),
             "additional_thresholds": additional_threshold_metadata(
                 args.additional_thresholds, output_paths
             ),
@@ -675,11 +748,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         },
         "spatial_metadata": {
             "source": (
-                "preserved_from_input_nifti"
+                "axis_reordered_from_input_nifti"
+                if loaded_patch.source_format == "nifti"
+                and args.output_axis_order is not None
+                else "preserved_from_input_nifti"
                 if loaded_patch.source_format == "nifti"
                 else "isotropic_voxel_size_affine"
             ),
-            "affine": loaded_patch.affine.tolist(),
+            "affine": output_reference.affine.tolist(),
             "nifti_header_preserved": loaded_patch.header is not None,
         },
         "command": shlex.join(command_args),
