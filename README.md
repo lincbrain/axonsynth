@@ -99,7 +99,7 @@ from the repository root so their configured log paths resolve correctly.
 
 ## Artifacts
 
-The pretrained three-class v2 checkpoint is available on Hugging Face at
+The pretrained three-class checkpoint is available on Hugging Face at
 [edziocodes/axonsynth](https://huggingface.co/edziocodes/axonsynth):
 
 ```bash
