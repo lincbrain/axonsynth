@@ -99,10 +99,12 @@ from the repository root so their configured log paths resolve correctly.
 
 ## Artifacts
 
-Model weights are **not stored in Git**. Their filenames, architectures, and training metadata are documented in:
+The pretrained three-class v2 checkpoint is available on Hugging Face at
+[edziocodes/axonsynth](https://huggingface.co/edziocodes/axonsynth):
 
-- `repro/checkpoints/three_class_v2_best.json`
-- `repro/checkpoints/binary_baseline_best.json`
+```bash
+hf download edziocodes/axonsynth best_model.pt --local-dir weights
+```
 
 ## Citation
 
