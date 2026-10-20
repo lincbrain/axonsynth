@@ -103,3 +103,9 @@ Model weights are **not stored in Git**. Their filenames, architectures, and tra
 
 - `repro/checkpoints/three_class_v2_best.json`
 - `repro/checkpoints/binary_baseline_best.json`
+
+## Citation
+
+If you use AxonSynth, please cite:
+
+> Gaibor E, Bintsi KM, Mauri C, Leiva Ureta CL, Bellatif Z, Maffei C, Li W, Hillman E, Balbastre Y, Yendiki A. AxonSynth: Domain-Randomized Synthetic Data for Zero-Shot 3D Axon Segmentation in Light-Sheet Microscopy. arXiv:2609.31431, 2026. https://arxiv.org/abs/2609.31431
