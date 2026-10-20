@@ -100,10 +100,10 @@ from the repository root so their configured log paths resolve correctly.
 ## Artifacts
 
 The pretrained three-class checkpoint is available on Hugging Face at
-[edziocodes/axonsynth](https://huggingface.co/edziocodes/axonsynth):
+[lincbrain/axonsynth](https://huggingface.co/lincbrain/axonsynth):
 
 ```bash
-hf download edziocodes/axonsynth best_model.pt --local-dir weights
+hf download lincbrain/axonsynth best_model.pt --local-dir weights
 ```
 
 ## Citation
