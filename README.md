@@ -89,8 +89,8 @@ print(results["raw"]["dice"])
 
 It reports voxel, topology, and connected-component metrics. Report the `raw`
 voxel metrics; `target_informed_neighbor_corrected` uses the target to adjust
-the prediction and is not deployable prediction postprocessing. See `tests/test_metrics.py` for
-small examples.
+the prediction and is not deployable prediction postprocessing. See
+`tests/test_metrics.py` for small examples.
 
 To reproduce the paper's comparison, use `paper_analysis/evaluate_lsm.py`. It
 runs the 12 patches and four methods defined in
