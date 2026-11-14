@@ -77,8 +77,8 @@ probabilities.
 
 To evaluate on your own labeled data, run `inference/infer_lsm.py` and score
 the result with `evaluate_binary_mask` from `paper_analysis/metrics.py`. This
-module is independent of the paper cohort and accepts any matching 3D binary
-prediction and target arrays:
+module is independent of the paper cohort and accepts a 3D binary prediction
+and a ground-truth target mask of the same shape:
 
 ```python
 from paper_analysis.metrics import evaluate_binary_mask
