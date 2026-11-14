@@ -95,7 +95,7 @@ the prediction and is not deployable prediction postprocessing. See
 To reproduce the paper's comparison, use `paper_analysis/evaluate_lsm.py`. It
 runs the 12 patches and four methods defined in
 `paper_analysis/config/lsm_12patch.json` and expects predictions to have
-already been generated; see
+already been generated. See
 [`paper_analysis/README.md`](paper_analysis/README.md) for the full workflow.
 
 ## Local Workspace
