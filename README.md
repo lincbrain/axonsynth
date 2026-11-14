@@ -91,6 +91,9 @@ patches and four methods defined in `paper_analysis/config/lsm_12patch.json`;
 it expects predictions to have already been generated. New labeled datasets
 can use `inference/infer_lsm.py` and import `evaluate_binary_mask` directly.
 
+To reproduce the paper's 12-patch comparison, see
+[`paper_analysis/README.md`](paper_analysis/README.md).
+
 ## Local Workspace
 
 Use `local/sbatch/` for temporary Slurm scripts and `local/logs/` for scheduler
