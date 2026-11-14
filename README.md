@@ -88,7 +88,7 @@ print(results["raw"]["dice"])
 ```
 
 It reports voxel, topology, and connected-component metrics. Report the `raw`
-voxel metrics; `target_informed_neighbor_corrected` uses the target to adjust
+voxel metrics. `target_informed_neighbor_corrected` uses the target to adjust
 the prediction and is not deployable prediction postprocessing. See
 `tests/test_metrics.py` for small examples.
 
