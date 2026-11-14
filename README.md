@@ -84,6 +84,7 @@ and target arrays:
 from paper_analysis.metrics import evaluate_binary_mask
 
 results = evaluate_binary_mask(prediction, target)
+print(results["raw"]["dice"])
 ```
 
 It reports voxel, topology, and connected-component metrics. See
