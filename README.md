@@ -73,23 +73,30 @@ retained. Normalization and Gaussian logit blending remain global over the
 prepared field. Do not infer independent outer tiles and merge their
 probabilities.
 
-## Evaluation and External Tests
+## Evaluation
 
-`paper_analysis/metrics.py` is independent of the paper cohort and accepts any
-matching 3D binary prediction and target arrays:
+To evaluate on your own labeled data, run `inference/infer_lsm.py` and score
+the result with `evaluate_binary_mask` from `paper_analysis/metrics.py`. This
+module is independent of the paper cohort and accepts a 3D binary prediction
+and a ground-truth target mask of the same shape:
 
 ```python
 from paper_analysis.metrics import evaluate_binary_mask
 
 results = evaluate_binary_mask(prediction, target)
+print(results["raw"]["dice"])
 ```
 
-It reports voxel, topology, and connected-component metrics. See
-`tests/test_metrics.py` for small examples. In contrast,
-`paper_analysis/evaluate_lsm.py` is the reproducibility runner for the 12
-patches and four methods defined in `paper_analysis/config/lsm_12patch.json`;
-it expects predictions to have already been generated. New labeled datasets
-can use `inference/infer_lsm.py` and import `evaluate_binary_mask` directly.
+It reports voxel, topology, and connected-component metrics. Report the `raw`
+voxel metrics. `target_informed_neighbor_corrected` uses the target to adjust
+the prediction and is not deployable prediction postprocessing. See
+`tests/test_metrics.py` for small examples.
+
+To reproduce the paper's comparison, use `paper_analysis/evaluate_lsm.py`. It
+runs the 12 patches and four methods defined in
+`paper_analysis/config/lsm_12patch.json` and expects predictions to have
+already been generated. See
+[`paper_analysis/README.md`](paper_analysis/README.md) for the full workflow.
 
 ## Local Workspace
 
